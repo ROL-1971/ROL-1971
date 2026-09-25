@@ -47,7 +47,7 @@
         LOOP AT ls_mapped-materialdocument ASSIGNING FIELD-SYMBOL(<ls_mapped>).
           CONVERT KEY OF i_materialdocumenttp
             FROM <ls_mapped>-%pid
-            TO FINAL(ls_matdoc_key).
+            TO DATA(ls_matdoc_key).
           lo_log->add_text( iv_severity = if_bali_constants=>c_severity_status
                             iv_text     = |Material document { ls_matdoc_key-MaterialDocument }/{ ls_matdoc_key-MaterialDocumentYear } posted| ).
         ENDLOOP.

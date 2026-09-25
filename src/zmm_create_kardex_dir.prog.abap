@@ -74,12 +74,13 @@ FORM create_directory.
   ENDTRY.
 
   " 2) read the command output (mkdir errors + return code) -> job log
+  DATA lv_line TYPE string.
   DATA(lv_rc) = ``.
   TRY.
       OPEN DATASET lv_tmp_file FOR INPUT IN TEXT MODE ENCODING DEFAULT.
       IF sy-subrc = 0.
         DO.
-          READ DATASET lv_tmp_file INTO DATA(lv_line).
+          READ DATASET lv_tmp_file INTO lv_line.
           IF sy-subrc <> 0.
             EXIT.
           ENDIF.
