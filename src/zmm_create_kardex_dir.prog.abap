@@ -4,28 +4,29 @@
 *& Creates a directory on the application server (visible in AL11),
 *& e.g. /nfs/a248_sap/SI4/Kardex/Historique
 *&
-*& ABAP has no statement to create a directory, so the program calls
-*& the external OS command ZMKDIR (transaction SM69) via
-*& SXPG_COMMAND_EXECUTE. This works in dialog and in background.
+*& ABAP has no statement to create a directory. Without an SM69
+*& command, the OS command "mkdir -p" is started through the FILTER
+*& addition of OPEN DATASET: the data written to the dataset is piped
+*& through the filter command, which runs in a shell on the
+*& application server. A temporary file in the base directory is used
+*& as the dataset and deleted afterwards.
 *&
-*& Prerequisite - SM69, create command:
-*&   Command name ............ ZMKDIR
-*&   Operating system ........ Linux   (same value as SY-OPSYS)
-*&   OS command .............. mkdir
-*&   Parameters for OS command -p
-*&   [X] Additional parameters allowed
-*& Authorization: S_LOG_COM for command ZMKDIR (user of the job step)
+*& Prerequisites:
+*&   - Application server on Unix/Linux (FILTER is not supported on
+*&     all platforms)
+*&   - Authorization S_DATASET for program ZMM_CREATE_KARDEX_DIR,
+*&     activities 34 (write), A7 (write with filter), 06 (delete),
+*&     file name = base directory
+*&   - OS user <sid>adm may write in the base directory
 *&
 *& If started in dialog, the program schedules itself as a background
 *& job (immediate start). The result is written to the job log (SM37).
 *&---------------------------------------------------------------------*
 REPORT zmm_create_kardex_dir.
 
-CONSTANTS gc_command TYPE sxpgcolist-name VALUE 'ZMKDIR'.
-
 PARAMETERS:
-  p_base TYPE sxpgcolist-parameters LOWER CASE OBLIGATORY DEFAULT '/nfs/a248_sap/SI4/Kardex',
-  p_dir  TYPE sxpgcolist-parameters LOWER CASE OBLIGATORY DEFAULT 'Historique'.
+  p_base TYPE char255 LOWER CASE OBLIGATORY DEFAULT '/nfs/a248_sap/SI4/Kardex',
+  p_dir  TYPE char255 LOWER CASE OBLIGATORY DEFAULT 'Historique'.
 
 
 START-OF-SELECTION.
@@ -40,16 +41,14 @@ START-OF-SELECTION.
 *& Build /base/dir, validate it and run "mkdir -p <path>"
 *&---------------------------------------------------------------------*
 FORM create_directory.
-  DATA lt_protocol TYPE STANDARD TABLE OF btcxpm WITH EMPTY KEY.
-  DATA lv_status   TYPE extcmdexex-status.
-  DATA lv_exitcode TYPE extcmdexex-exitcode.
+  " base and full path, remove duplicate / trailing slashes (a248_sap//SI4)
+  DATA(lv_base) = replace( val = condense( p_base ) regex = `/{2,}` with = `/` occ = 0 ).
+  lv_base = replace( val = lv_base regex = `/$` with = `` ).
+  DATA(lv_path) = replace( val = |{ lv_base }/{ condense( p_dir ) }| regex = `/{2,}` with = `/` occ = 0 ).
+  lv_path = replace( val = lv_path regex = `/$` with = `` ).
 
-  " full path, remove duplicate / trailing slashes (e.g. a248_sap//SI4)
-  DATA(lv_path) = |{ condense( p_base ) }/{ condense( p_dir ) }|.
-  lv_path = replace( val = lv_path regex = `/{2,}` with = `/` occ = 0 ).
-  lv_path = replace( val = lv_path regex = `/$`    with = ``  ).
-
-  " only allow a plain absolute path - no shell characters, no ".."
+  " the path goes into a shell command: allow only a plain absolute
+  " path - no blanks, quotes, ; | & $ ` or ".."
   IF NOT matches( val = lv_path regex = `^/[A-Za-z0-9_./-]+$` )
      OR lv_path CS '..'.
     MESSAGE |Invalid directory name: { lv_path }| TYPE 'E'.
@@ -57,52 +56,64 @@ FORM create_directory.
 
   MESSAGE |Creating directory { lv_path }| TYPE 'S'.
 
-  CALL FUNCTION 'SXPG_COMMAND_EXECUTE'
-    EXPORTING
-      commandname                   = gc_command
-      additional_parameters         = CONV sxpgcolist-parameters( lv_path )
-      operatingsystem               = sy-opsys
-      terminationwait               = abap_true
-    IMPORTING
-      status                        = lv_status
-      exitcode                      = lv_exitcode
-    TABLES
-      exec_protocol                 = lt_protocol
-    EXCEPTIONS
-      no_permission                 = 1
-      command_not_found             = 2
-      parameters_too_long           = 3
-      security_risk                 = 4
-      wrong_check_call_interface    = 5
-      program_start_error           = 6
-      program_termination_error     = 7
-      x_error                       = 8
-      parameter_expected            = 9
-      too_many_parameters           = 10
-      illegal_command               = 11
-      wrong_asynchronous_parameters = 12
-      cant_enq_tbtco_entry          = 13
-      jobcount_generation_error     = 14
-      OTHERS                        = 15.
-  DATA(lv_subrc) = sy-subrc.
+  " 1) run mkdir via FILTER; stdout of the filter goes to the temp file
+  DATA(lv_tmp_file) = |{ lv_base }/.zmkdir_{ sy-datum }{ sy-uzeit }.tmp|.
+  DATA(lv_filter)   = |mkdir -p { lv_path } 2>&1; echo "RC=$?"|.
 
-  " OS output (stdout/stderr of mkdir) -> job log
-  LOOP AT lt_protocol INTO DATA(ls_protocol).
-    MESSAGE ls_protocol-message TYPE 'S'.
-  ENDLOOP.
+  TRY.
+      OPEN DATASET lv_tmp_file FOR OUTPUT IN TEXT MODE ENCODING DEFAULT
+           FILTER lv_filter.
+      IF sy-subrc <> 0.
+        MESSAGE |Cannot open { lv_tmp_file } (no write access to { lv_base }?)| TYPE 'E'.
+      ENDIF.
+      CLOSE DATASET lv_tmp_file.   " waits until the command has finished
+    CATCH cx_sy_file_authority INTO DATA(lx_auth).
+      MESSAGE |No authorization S_DATASET: { lx_auth->get_text( ) }| TYPE 'E'.
+    CATCH cx_sy_file_open cx_sy_file_io cx_sy_file_close INTO DATA(lx_file).
+      MESSAGE lx_file->get_text( ) TYPE 'E'.
+  ENDTRY.
 
-  IF lv_subrc <> 0.
-    DATA(lv_reason) = SWITCH string( lv_subrc
-      WHEN 1  THEN `no authorization (S_LOG_COM)`
-      WHEN 2  THEN |command { gc_command } not defined in SM69 for { sy-opsys }|
-      WHEN 4  THEN `security risk - path contains forbidden characters`
-      ELSE         |SXPG_COMMAND_EXECUTE sy-subrc = { lv_subrc }| ).
-    MESSAGE |Directory { lv_path } not created: { lv_reason }| TYPE 'E'.
-  ELSEIF lv_status <> 'O' OR lv_exitcode <> 0.
-    MESSAGE |Directory { lv_path } not created: mkdir status { lv_status } exit code { lv_exitcode }| TYPE 'E'.
-  ELSE.
-    " mkdir -p also returns 0 if the directory already exists
+  " 2) read the command output (mkdir errors + return code) -> job log
+  DATA(lv_rc) = ``.
+  TRY.
+      OPEN DATASET lv_tmp_file FOR INPUT IN TEXT MODE ENCODING DEFAULT.
+      IF sy-subrc = 0.
+        DO.
+          READ DATASET lv_tmp_file INTO DATA(lv_line).
+          IF sy-subrc <> 0.
+            EXIT.
+          ENDIF.
+          IF lv_line CP 'RC=*'.
+            lv_rc = substring_after( val = lv_line sub = `RC=` ).
+          ELSEIF lv_line IS NOT INITIAL.
+            MESSAGE lv_line TYPE 'S'.
+          ENDIF.
+        ENDDO.
+        CLOSE DATASET lv_tmp_file.
+      ENDIF.
+      DELETE DATASET lv_tmp_file.
+    CATCH cx_sy_file_authority cx_sy_file_open cx_sy_file_io cx_sy_file_close.
+      " temp file is only for diagnostics - the real check follows
+  ENDTRY.
+
+  " 3) verify: write and delete a test file inside the new directory
+  DATA(lv_test_file) = |{ lv_path }/.zmkdir_check.tmp|.
+  TRY.
+      OPEN DATASET lv_test_file FOR OUTPUT IN TEXT MODE ENCODING DEFAULT.
+      DATA(lv_ok) = xsdbool( sy-subrc = 0 ).
+      IF lv_ok = abap_true.
+        CLOSE DATASET lv_test_file.
+        DELETE DATASET lv_test_file.
+      ENDIF.
+    CATCH cx_sy_file_authority cx_sy_file_open cx_sy_file_io cx_sy_file_close.
+      lv_ok = abap_false.
+  ENDTRY.
+
+  IF lv_ok = abap_true.
+    " mkdir -p also succeeds if the directory already exists
     MESSAGE |Directory { lv_path } is available (AL11)| TYPE 'S'.
+  ELSE.
+    MESSAGE |Directory { lv_path } not created (mkdir return code { lv_rc })| TYPE 'E'.
   ENDIF.
 ENDFORM.
 
