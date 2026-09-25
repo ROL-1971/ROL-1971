@@ -41,10 +41,21 @@ START-OF-SELECTION.
 *& Build /base/dir, validate it and run "mkdir -p <path>"
 *&---------------------------------------------------------------------*
 FORM create_directory.
+  DATA lv_base      TYPE string.
+  DATA lv_path      TYPE string.
+  DATA lv_tmp_file  TYPE string.
+  DATA lv_filter    TYPE string.
+  DATA lv_test_file TYPE string.
+  DATA lv_line      TYPE string.
+  DATA lv_rc        TYPE string.
+  DATA lv_ok        TYPE abap_bool.
+  DATA lx_auth      TYPE REF TO cx_sy_file_authority.
+  DATA lx_file      TYPE REF TO cx_root.
+
   " base and full path, remove duplicate / trailing slashes (a248_sap//SI4)
-  DATA(lv_base) = replace( val = condense( p_base ) regex = `/{2,}` with = `/` occ = 0 ).
+  lv_base = replace( val = condense( p_base ) regex = `/{2,}` with = `/` occ = 0 ).
   lv_base = replace( val = lv_base regex = `/$` with = `` ).
-  DATA(lv_path) = replace( val = |{ lv_base }/{ condense( p_dir ) }| regex = `/{2,}` with = `/` occ = 0 ).
+  lv_path = replace( val = |{ lv_base }/{ condense( p_dir ) }| regex = `/{2,}` with = `/` occ = 0 ).
   lv_path = replace( val = lv_path regex = `/$` with = `` ).
 
   " the path goes into a shell command: allow only a plain absolute
@@ -57,8 +68,8 @@ FORM create_directory.
   MESSAGE |Creating directory { lv_path }| TYPE 'S'.
 
   " 1) run mkdir via FILTER; stdout of the filter goes to the temp file
-  DATA(lv_tmp_file) = |{ lv_base }/.zmkdir_{ sy-datum }{ sy-uzeit }.tmp|.
-  DATA(lv_filter)   = |mkdir -p { lv_path } 2>&1; echo "RC=$?"|.
+  lv_tmp_file = |{ lv_base }/.zmkdir_{ sy-datum }{ sy-uzeit }.tmp|.
+  lv_filter   = |mkdir -p { lv_path } 2>&1; echo RC=$?|.
 
   TRY.
       OPEN DATASET lv_tmp_file FOR OUTPUT IN TEXT MODE ENCODING DEFAULT
@@ -67,15 +78,13 @@ FORM create_directory.
         MESSAGE |Cannot open { lv_tmp_file } (no write access to { lv_base }?)| TYPE 'E'.
       ENDIF.
       CLOSE DATASET lv_tmp_file.   " waits until the command has finished
-    CATCH cx_sy_file_authority INTO DATA(lx_auth).
+    CATCH cx_sy_file_authority INTO lx_auth.
       MESSAGE |No authorization S_DATASET: { lx_auth->get_text( ) }| TYPE 'E'.
-    CATCH cx_sy_file_open cx_sy_file_io cx_sy_file_close INTO DATA(lx_file).
+    CATCH cx_sy_file_open cx_sy_file_io cx_sy_file_close INTO lx_file.
       MESSAGE lx_file->get_text( ) TYPE 'E'.
   ENDTRY.
 
   " 2) read the command output (mkdir errors + return code) -> job log
-  DATA lv_line TYPE string.
-  DATA(lv_rc) = ``.
   TRY.
       OPEN DATASET lv_tmp_file FOR INPUT IN TEXT MODE ENCODING DEFAULT.
       IF sy-subrc = 0.
@@ -98,10 +107,10 @@ FORM create_directory.
   ENDTRY.
 
   " 3) verify: write and delete a test file inside the new directory
-  DATA(lv_test_file) = |{ lv_path }/.zmkdir_check.tmp|.
+  lv_test_file = |{ lv_path }/.zmkdir_check.tmp|.
   TRY.
       OPEN DATASET lv_test_file FOR OUTPUT IN TEXT MODE ENCODING DEFAULT.
-      DATA(lv_ok) = xsdbool( sy-subrc = 0 ).
+      lv_ok = xsdbool( sy-subrc = 0 ).
       IF lv_ok = abap_true.
         CLOSE DATASET lv_test_file.
         DELETE DATASET lv_test_file.
