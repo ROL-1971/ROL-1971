@@ -26,3 +26,18 @@ without SM69: `mkdir -p` is started via `OPEN DATASET ... FILTER`, then the
 directory is verified by writing/deleting a test file.
 Needs S_DATASET (activities 34, A7, 06). Run in dialog → schedules itself as a
 background job; result in the SM37 job log.
+
+## ZCL_MM_MATDOC_SPOOL
+
+Returns the spool request number(s) of the printed output of a material document
+(NAST application `MD` -> processing log in `CMFP`).
+
+```abap
+DATA(lv_spool) = NEW zcl_mm_matdoc_spool( )->get_last_spool_number(
+                   iv_mblnr = ls_matdoc_key-MaterialDocument
+                   iv_mjahr = ls_matdoc_key-MaterialDocumentYear ).
+```
+
+Output is processed after the save (NAST / RSNAST00), so call it after `COMMIT ENTITIES`
+and, if output is dispatched by a batch job, only once that job has run. The processing-log
+message in `c_log_msgid` / `c_log_msgno` must be verified in the target system.
