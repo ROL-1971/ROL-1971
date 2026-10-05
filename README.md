@@ -26,3 +26,12 @@ without SM69: `mkdir -p` is started via `OPEN DATASET ... FILTER`, then the
 directory is verified by writing/deleting a test file.
 Needs S_DATASET (activities 34, A7, 06). Run in dialog → schedules itself as a
 background job; result in the SM37 job log.
+
+## ZMM_LIST_SHARE_FILES – list files of an external share in background
+
+Lists the files of `\\10.249.20.109\Interface\243A\TO-ERP` (parameters `P_DIR` /
+`P_MASK`) using `EPS_GET_DIRECTORY_LISTING` on the application server. The file
+list goes to the job spool, the summary to the SM37 job log.
+Windows app server: the UNC path works directly. Unix/Linux app server: mount the
+share and enter the mount path in `P_DIR` (UNC paths cannot be read there).
+Needs S_DATASET (activity 33). Run in dialog → schedules itself as a background job.
