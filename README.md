@@ -26,3 +26,13 @@ without SM69: `mkdir -p` is started via `OPEN DATASET ... FILTER`, then the
 directory is verified by writing/deleting a test file.
 Needs S_DATASET (activities 34, A7, 06). Run in dialog → schedules itself as a
 background job; result in the SM37 job log.
+
+## ZMM_RELEASE_PO – release purchase orders (S/4HANA on-premise)
+
+Releases POs via `BAPI_PO_RELEASE` (equivalent of ME29N). Selection: PO
+numbers (`S_EBELN`) and the release code (`P_REL`, T16FC-FRGCO) of the
+approving user. `P_TEST` (default on) runs the BAPI and rolls back; untick to
+commit. Result list as ALV (green/yellow/red).
+Needs authorization object M_EINK_FRG for the release code/group.
+For ABAP Cloud / released APIs there is no BAPI – use the PO release action
+of the Fiori app "Manage Purchase Orders" instead.
