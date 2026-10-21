@@ -26,3 +26,11 @@ without SM69: `mkdir -p` is started via `OPEN DATASET ... FILTER`, then the
 directory is verified by writing/deleting a test file.
 Needs S_DATASET (activities 34, A7, 06). Run in dialog → schedules itself as a
 background job; result in the SM37 job log.
+
+## ZMM_READ_KARDEX_DIR – list and read the files of an AL11 directory
+
+Lists the files of `/nfs/a248_sap/SI4/Kardex/Historique` (parameters `P_DIR` /
+`P_MASK`) with `EPS2_GET_DIRECTORY_LISTING` and, with `P_READ`, prints the first
+`P_MAX` lines of each file via `OPEN DATASET ... FOR INPUT`.
+Needs S_DATASET (activity 33). Can run in dialog or as a background job
+(SM36); the output is in the spool list.
